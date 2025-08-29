@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import ReactDOM from "react-dom";
 import AWS from "aws-sdk";
 import { Buffer } from "buffer";
@@ -16,20 +16,24 @@ import PropagateLoader from "react-spinners/PropagateLoader"
 import useLocalStorage from "use-local-storage";
 import { ExportCsv, ExportPdf } from "@material-table/exporters";
 import Swal from 'sweetalert2'
+//import Upload from './Upload'
 
 
 
 
 const App = () => {
   const [file, setfile] = useState(null)
+  const fileInputRef = useRef(null); 
 
   const [folderName, setfolderName] = useState([])
   const [fileType, setfileType] = useLocalStorage("fileType", "All")
 
+  const [tableData, setTableData] = useState([]);
+
   AWS.config.update({
-    accessKeyId: "",
-    secretAccessKey: "",
-    sessionToken: ""
+    accessKeyId: process.env.REACT_APP_AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.REACT_APP_AWS_SECRET_ACCESS_KEY,
+    region: "us-east-1",
   });
   const S3 = new AWS.S3();
 
@@ -71,7 +75,7 @@ const App = () => {
   const getData = async () => {
     try {
       let finalData = [];
-      await S3.listObjectsV2({ Bucket: "my-dms-bucket-osl1" }).promise().then(data => {
+      await S3.listObjectsV2({ Bucket: "my-dms-bucket-new" }).promise().then(data => {
         for (let i = 0; i < data.Contents.length; i++) {
           const keyName = data.Contents[i].Key;
           const splitFolderName = keyName.substring(0, keyName.indexOf('/'));
@@ -113,7 +117,16 @@ const App = () => {
     }
   }
 
-  const { data, isLoading, refetch } = useQuery(['data'], getData)
+  const { isLoading, refetch } = useQuery(
+    ['data'],
+    getData,
+    {
+      onSuccess: (fetchedData) => setTableData(fetchedData),
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      retry: false
+    }
+  );
 
 
   console.log(folderName)
@@ -131,56 +144,77 @@ const App = () => {
   ];
   const actions = [
     {
-      // icon: () => <button className="addbutton">Add</button>,
       icon: () => <button className="button-7">Download</button>,
-
-
-      // tooltip: "",
-      onClick: (event, rowData) => {
-        console.log(rowData.Key)
+      onClick: async (event, rowData) => {
         try {
+          Swal.fire({
+            title: "Preparing download...",
+            text: "Please wait while we fetch your file.",
+            allowOutsideClick: false,
+            didOpen: () => {
+              Swal.showLoading();
+            },
+          });
+          const params = {
+            Bucket: "my-dms-bucket-new",
+            Key: rowData.Key,
+            Expires: 60, // link valid for 1 minute
+            ResponseContentDisposition: `attachment; filename="${rowData.Key.split("/").pop()}"`
+          };
 
-          console.log(data)
+          // Get signed URL
+          const url = S3.getSignedUrl("getObject", params);
 
-          // var params = { Bucket: "my-dms-bucket-osl1", Key: rowData.Key, Expires: 3600, ResponseContentDisposition: `attachment; filename=${rowData.Key}` };
-          // var url = S3.getSignedUrl('getObject', params);
-          // console.log(url)
-          // fetch(url, { method: 'GET' })
-          //   .then(res => {
-          //     return res.blob();
-          //   })
-          //   .then(blob => {
-          //     saveAs(blob, `${rowData.Key}`);
-          //   })
-          //   .catch(err => {
-          //     console.error('err: ', err);
-          //   })
+          // Fetch file
+          const response = await fetch(url);
+          const blob = await response.blob();
 
+          // Save using file-saver
+          saveAs(blob, rowData.Key.split("/").pop());
 
-          //var FileSaver = require('file-saver');
-          //FileSaver.saveAs(`https://my-dms-bucket-osl1.s3.amazonaws.com/${rowData.Key}`, `${rowData.Key}`);
+          Swal.close();
+
         } catch (error) {
-
+          console.error("Download failed:", error);
+          Swal.fire({
+            position: "top",
+            icon: "error",
+            title: "Download failed",
+            text: error.message,
+            showConfirmButton: true,
+          });
         }
       },
     },
     {
       // icon: () => <button className="addbutton">Add</button>,
-      icon: () => <button className="button-7">Delete</button>,
+      icon: () => <button type="button" className="button-7">Delete</button>,
 
 
       // tooltip: "Add User",
       onClick: (event, rowData) => {
 
         try {
-          var params = {
-            Bucket: "my-dms-bucket-osl1",
+          const params = {
+            Bucket: "my-dms-bucket-new",
             Key: rowData.Key
           };
           S3.deleteObject(params, function (err, data) {
-            if (data) {
-              // console.log("File deleted successfully");
-              refetch();
+            if (err) {
+              console.log("Failed to delete", err);
+              Swal.fire({
+                position: "top",
+                icon: "error",
+                title: "Delete failed",
+                text: err.message,
+                showConfirmButton: true,
+              });
+            } else {
+              console.log("File deleted successfully", data);
+              
+              // ✅ Remove the deleted file from tableData immediately
+              setTableData(prevData => prevData.filter(item => item.Key !== rowData.Key));
+
               Swal.fire({
                 position: "top",
                 icon: "success",
@@ -188,17 +222,11 @@ const App = () => {
                 showConfirmButton: false,
                 timer: 1500,
               });
-            } else {
-              console.log("Failed to delete")
             }
-
-          })
+          });
         } catch (error) {
-
+          console.log("Delete exception", error);
         }
-
-
-
       },
     },
   ];
@@ -247,7 +275,14 @@ const App = () => {
 
   const submitFile = async event => {
 
-    event.preventDefault();
+    if (!file || file.length === 0) {
+      return; // Stop execution
+    }
+    console.log("AWS Access Key:", process.env.REACT_APP_AWS_ACCESS_KEY_ID);
+    console.log("AWS Secret Key:", process.env.REACT_APP_AWS_SECRET_ACCESS_KEY);
+    console.log("Bucket:", process.env.REACT_APP_BUCKET_NAME);
+    console.log("S3 Object:", S3);
+
     const formData = new FormData();
     formData.append("file", file[0]);
 
@@ -256,16 +291,21 @@ const App = () => {
 
 
     const objParams = {
-      Bucket: "my-dms-bucket-osl1",
+      Bucket: "my-dms-bucket-new",
       Key: fileType === "PDF" ?
         ("PDF" + "/" + file[0].name) : fileType === "XLX" ? ("XLX" + "/" + file[0].name) : fileType === "DOC" ? ("DOC" + "/" + file[0].name) : fileType === "Image" ? ("Image" + "/" + file[0].name) : fileType === "Other" ? ("Other" + "/" + file[0].name) : "",
       Body: file[0],
       // Body: file,
-      ContentType: 'application/pdf',
+      ContentType: file[0].type,
       acl: 'private',
       contentDisposition: 'attachment',
       ServerSideEncryption: 'AES256'
     };
+
+    console.log("Uploading file:", file[0].name);
+    console.log("Key:", objParams.Key);
+    console.log("Bucket:", objParams.Bucket);
+    console.log("ContentType:", objParams.ContentType);
 
     const response = S3.upload(objParams)
       .on("httpUploadProgress", function (progress) {
@@ -282,6 +322,10 @@ const App = () => {
         } else {
           console.log("SEND FINISHED", JSON.stringify(data));
           refetch();
+          setfile(null); // ✅ Clear selected file
+          if (fileInputRef.current) {
+            fileInputRef.current.value = "";   // ✅ safe reset without showing "No file selected"
+          }
           Swal.fire({
             position: "top",
             icon: "success",
@@ -310,7 +354,7 @@ const App = () => {
 
 
         {/* <img src={`data: image / png; base64, ${data} `} alt="" srcset="" /> */}
-        <form onSubmit={submitFile}>
+        <div>
           <div>
             <div className="pwd-container">
               {/* <div>
@@ -333,7 +377,7 @@ const App = () => {
                   }
                   variant="standard"
                 >
-                  <option selected disabled value="">
+                  <option disabled value="">
                     Please select
                   </option>
                   {fileTypes.map((option) => {
@@ -351,27 +395,56 @@ const App = () => {
 
           {fileType === "All" ? "" :
             <>
-              <div style={{ display: "flex", alignItem: "center" }}>
+              <div style={{ display: "flex", alignItems: "center" }}>
                 <div>
                   <input
                     type="file"
                     name="file-input"
                     id="file-input"
-                    class="file-input__input"
-                    accept={fileType === "PDF" ?
-                      "application/pdf" : fileType === "XLX" ? ".csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" : fileType === "DOC" ? "application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" : fileType === "Image" ? "image/png, image/gif, image/jpeg" : ""}
-
-                    onChange={handleFileUpload}
+                    ref={fileInputRef}
+                    className="file-input__input"
+                    accept={
+                      fileType === "PDF"
+                        ? "application/pdf"
+                        : fileType === "Image"
+                        ? "image/*"
+                        : fileType === "DOC"
+                        ? ".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        : fileType === "XLX"
+                        ? ".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        : "*/*"
+                    }
+                    onChange={(e) => {
+                      setfile(e.target.files);
+                    }}
                   />
-                  <label class="file-input__label" for="file-input">
+                  <label className="file-input__label" htmlFor="file-input">
 
                     <UploadFileIcon />
-                    <span>Select file</span></label
-                  >
+                    <span>Select file</span>
+                  </label>
                 </div>
-                <button type="submit" className="uploadBtn"><span>Upload</span> <span><CloudUploadIcon /></span></button>
+                <button 
+                  type="button" 
+                  className="uploadBtn" 
+                  onClick={() => {
+                    if (!file || file.length === 0) {
+                      Swal.fire({
+                        position: "top",
+                        icon: "warning",
+                        title: "No file selected",
+                        text: "Please select a file before uploading.",
+                        showConfirmButton: true,
+                      });
+                      return;
+                    }
+                    submitFile();
+                  }}
+                >
+                  <span>Upload</span> <span><CloudUploadIcon /></span>
+                </button>
               </div>
-              <p>{file !== null ? file[0].name : null}</p>
+              {file && file.length > 0 && <p>{file[0].name}</p>}
 
             </>
           }
@@ -389,7 +462,7 @@ const App = () => {
               }}
               title="DMS Data"
               columns={columns}
-              data={data}
+              data={tableData}
               actions={actions}
               options={{
                 exportMenu: [
@@ -408,7 +481,7 @@ const App = () => {
               }} />
           </div>
 
-        </form>
+        </div>
       </div >
     </>
   );
