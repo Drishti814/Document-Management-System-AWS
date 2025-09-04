@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from "react";
 import ReactDOM from "react-dom";
 import AWS from "aws-sdk";
 import { Buffer } from "buffer";
-// import "./styles.css";
 import { saveAs } from 'file-saver';
 import MaterialTable from "@material-table/core";
 import './App.css'
@@ -16,12 +15,9 @@ import PropagateLoader from "react-spinners/PropagateLoader"
 import useLocalStorage from "use-local-storage";
 import { ExportCsv, ExportPdf } from "@material-table/exporters";
 import Swal from 'sweetalert2'
-//import Upload from './Upload'
-
-
-
 
 const App = () => {
+  
   const [file, setfile] = useState(null)
   const fileInputRef = useRef(null); 
 
@@ -44,33 +40,6 @@ const App = () => {
     console.log("event.target.value", event.target.value);
     setfile(event.target.files)
   };
-
-  // const getData = async () => {
-  //   try {
-  //     const listAllKeys = (params, out = []) => new Promise((resolve, reject) => {
-  //       S3.listObjectsV2(params).promise()
-  //         .then(({ Contents, IsTruncated, NextContinuationToken }) => {
-  //           out.push(...Contents);
-  //           !IsTruncated ? resolve(out) : resolve(listAllKeys(Object.assign(params, { ContinuationToken: NextContinuationToken }), out));
-  //         })
-  //         .catch(reject);
-  //     });
-
-  //     listAllKeys({ Bucket: 'my-dms-bucket-osl1' })
-  //       .then((data) => {
-  //         // setobjData(data)
-  //         // console.log(data)
-  //         return data
-  //         // console.log(data)
-  //       })
-  //       .catch(console.log);
-
-
-
-  //   } catch (error) {
-
-  //   }
-  // }
 
   const getData = async () => {
     try {
@@ -96,18 +65,6 @@ const App = () => {
         console.warn('Not exist folder exception is not catch here!');
         return false;
       });
-      // console.log(results.Contents[0].Key);
-      // let folderName = [];
-      // for (let i = 0; i < results.Contents.length; i++) {
-      //   const keyName = results.Contents[i].Key;
-      //   const splitFolderName = keyName.substring(0, keyName.indexOf('/'));
-      //   // console.log(splitFolderName)
-      //   folderName.push(splitFolderName)
-
-
-
-      // }
-      // setfolderName(folderName)
 
       return finalData;
 
