@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import ReactDOM from "react-dom";
 import AWS from "aws-sdk";
-import { Buffer } from "buffer";
 import { saveAs } from 'file-saver';
 import MaterialTable from "@material-table/core";
 import './App.css'
@@ -17,7 +15,7 @@ import { ExportCsv, ExportPdf } from "@material-table/exporters";
 import Swal from 'sweetalert2'
 
 const App = () => {
-  
+
   const [file, setfile] = useState(null)
   const fileInputRef = useRef(null); 
 
